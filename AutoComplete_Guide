@@ -1,0 +1,132 @@
+jQuery Autocomplete With MySQL And PHP
+
+Making an auto-suggestion script, something that reads your input and shows related matches as you type, can be quite a challenge. It’s been made very popular by the big search engines. Yahoo did it first, and now Google has Instant which is killing its competitors. But how do you get one on your site? Luckily, jQuery has given us a very simple solution: http://jqueryui.com/demos/autocomplete/.
+
+Let’s pretend you are making a website for a client who has multiple locations all throughout the United States. They ask you to build a form which takes a zipcode and spits out locations surrounding that zipcode. They also request, that, as the user types their zipcode, a suggestion box appears showing them relevant matches.
+
+jQuery’s autocomplete makes this an easy task. The first thing you need to do, obviously, is create your form. Make sure you give your search box an id attribute, as it’s easier to work with that way.
+
+View Code HTML
+<form action="search.php" method="post">
+	Enter your zipcode:
+	<input type="text" id="zipsearch" />
+ 
+	<br />
+	<input type="submit" value="Search" />
+</form>
+The second thing you need to do is tell jQuery to use its auto-complete User Interface (UI) on the search box you just made. When the auto-complete UI searches a database, you need to specify the website address for the PHP script that will be querying the database and returning results. Let’s call our script, ‘suggest_zip.php’ since it will be suggesting zip codes from partial searches. Also, to limit the amount of queries that are made, we can tell the auto-complete UI not to send anything to the server unless the user has typed at least ‘x’ amount of characters, or numbers in our case. Let’s limit ‘x’ to 2 numbers. We can stick this all in the ‘ready’ event, so it doesn’t fire until the document has loaded.
+
+View Code JAVASCRIPT
+jQuery(document).ready(function($){
+	$('#zipsearch').autocomplete({source:'suggest_zip.php', minLength:2});
+});
+And that’s it for the HTML and JavaScript side of things. Just make sure you are loading the required jQuery libraries to make this work. See the link for dependancies: http://jqueryui.com/demos/autocomplete/. You can download jQuery at the following locations: http://docs.jquery.com/Downloading_jQuery and http://jqueryui.com/download. Our script also uses jQuery’s ‘smoothness’ UI styles, which come bundled on their site. The UI styles style the results for us. You can make your own theme or use one of the pre-built themes jQuery has: http://jqueryui.com/themeroller/.
+
+Now, let’s take a look at how we need to build our PHP script to work with the auto-complete UI that we just added to our form. First, we need to make a connection to the database. Since I use MySQL for my database, I’ll use mysql_connect and the mysql_* functions to make this script. After we have a valid connection to the database and the database we are using has been selected, mysql_select_db(), we can write our database query. Now, jQuery’s auto-complete expects two values to be returned along with each result: ‘value’ and ‘label’. Our script will be returning an array of data. Each item in that array needs to have ‘value’ and / or ‘label’. If ‘label’ is provided, jQuery shows your results using this, but when you select a result, it uses ‘value’ to populate your textbox. If ‘label’ is not provided, jQuery will use ‘value’ for both. So, our array in PHP looks like this: $data = array( array(‘label’=>’Item One’, ‘value’=>1) , array(‘label’=>’Item Two’, ‘value’=>2) ); If you need help with arrays in PHP, see the following webpage: http://php.net/array. When we return this data back to jQuery, we have to put it into a format that jQuery understands, which is JSON, aka. Javascript Object Notation. In order to turn an array of data from PHP into JSON, we use PHP’s built-in function json_encode. Use echo or print to transfer the data from PHP to jQuery: echo json_encode( $data ); If we take our array example above, what would be returned actually looks like this: [{“label”:”Item One”,”value”:1},{“label”:”Item Two”,”value”:2}], and that is JSON.
+
+When jQuery sends the HTTP request to our suggest_zip.php script, it will send the text that’s being searched in the variable labeled, ‘term’. We can use $_REQUEST[‘term’] to access it. $_REQUEST allows us to access variables that were sent along with HTTP Requests, so if it was sent by an HTML Form Post, or over the URL: www.website.com?term=text, $_REQUEST will allow us to access it.
+
+Let’s take a look at the PHP code inside of suggest_zip.php:
+
+View Code PHP
+<?php
+ 
+// if the 'term' variable is not sent with the request, exit
+if ( !isset($_REQUEST['term']) )
+	exit;
+ 
+// connect to the database server and select the appropriate database for use
+$dblink = mysql_connect('server', 'username', 'password') or die( mysql_error() );
+mysql_select_db('database_name');
+ 
+// query the database table for zip codes that match 'term'
+$rs = mysql_query('select zip, city, state from zipcode where zip like "'. mysql_real_escape_string($_REQUEST['term']) .'%" order by zip asc limit 0,10', $dblink);
+ 
+// loop through each zipcode returned and format the response for jQuery
+$data = array();
+if ( $rs && mysql_num_rows($rs) )
+{
+	while( $row = mysql_fetch_array($rs, MYSQL_ASSOC) )
+	{
+		$data[] = array(
+			'label' => $row['zip'] .', '. $row['city'] .' '. $row['state'] ,
+			'value' => $row['zip']
+		);
+	}
+}
+ 
+// jQuery wants JSON data
+echo json_encode($data);
+flush();
+Here’s the SQL structure necessary for the zipcode table, written in MySQL:
+
+View Code MYSQL
+create table zipcode
+(
+	id int not null primary key auto_increment ,
+	zip varchar(20) not null ,
+	city varchar(100) not null ,
+	state varchar(5) not null 
+);
+create index idx_zipcode on zipcode ( zip(5) );
+And that’s it. Now you have a form that will auto-suggest zipcodes as you type.
+
+View: Live Example; suggest_zip.php
+
+Download: ZIP Bundle – Grab this for a complete zipcode table and all the code bundled together.
+
+Join us on DALNet for questions and discussion; irc.dal.net #php (requires IRC client)
+
+Live Example
+
+
+Grouped Results
+As requested, here is an example demonstrating how to group the results in the autocomplete UI. Since this blog is rather old, I have chosen to demonstrate this using PDO instead of the deprecated mysql_* functions.
+
+First, we need to create a custom autocomplete widget, so we can overload the method used to render the menu. When the UI renders the menu, it needs to read the current category, and if it’s not the same as the last category, it should print an LI with a special class on it, so the autocomplete knows it’s not a result. This assumes that the results are sorted by category, otherwise you will get the category listed multiple times.
+
+View Code JAVASCRIPT
+$.widget('custom.groupedSearch', $.ui.autocomplete,
+{
+	_renderMenu: function(ul, items)
+	{
+		var currentCategory = "";
+		$.each( items, $.proxy(function(index, item)
+		{
+			// evaluate the category and render an LI tag
+			if (item.category != currentCategory)
+			{
+				ul.append("<li class='ui-autocomplete-category'>" + item.category + "</li>");
+				currentCategory = item.category;
+			}
+ 
+			// render the item (this returns the LI DOMNode instance)
+			var li = this._renderItem(ul, item);
+		}, this));
+	}
+});
+ 
+// initialize the custom autocomplete widget
+$('.zipcode').groupedSearch({
+	source : 'groupedZipcodeSearch.php' ,
+	minLength : 2
+});
+The PHP just needs to order the mysql results by the category in question. In my example, the category consists of two fields, state taking precedence. Given a zipcode that starts with “123”, we could demonstrate this query as follows:
+
+View Code MYSQL
+select zip, city, state
+from zipcode
+where zip like "123%" 
+order by state asc, city asc, zip asc
+limit 0,10
+Next, include ‘category’ in the response array and javascript will be able to group it. This example groups the results by city and state, but the javascript will support any grouping, so long as its provided a ‘category’ key in the array returned from the suggestion script.
+
+View Code PHP
+$data[] = array(
+	'label' => 'Displayed Result' ,
+	'value' => 'Chosen Result Value' ,
+	'category' => 'Grouped Category'
+);
+
+
+View Live Demo Here : http://www.heightcelebs.com/celebrity-height-comparison/
